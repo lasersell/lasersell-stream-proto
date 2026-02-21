@@ -119,8 +119,6 @@ pub struct StrategyConfigMsg {
     pub target_profit_pct: f64,
     /// Stop-loss percentage.
     pub stop_loss_pct: f64,
-    /// Max seconds to wait for an outbound transaction deadline.
-    pub deadline_timeout_sec: u64,
 }
 
 /// Server-enforced per-session and per-key limits.
@@ -453,7 +451,6 @@ mod tests {
             strategy: StrategyConfigMsg {
                 target_profit_pct: 5.0,
                 stop_loss_pct: 1.5,
-                deadline_timeout_sec: 45,
             },
         };
 
@@ -467,8 +464,7 @@ mod tests {
             "wallet_pubkey":"11111111111111111111111111111111",
             "strategy":{
                 "target_profit_pct":5.0,
-                "stop_loss_pct":1.5,
-                "deadline_timeout_sec":45
+                "stop_loss_pct":1.5
             }
         }"#;
 
@@ -480,7 +476,6 @@ mod tests {
                 strategy: StrategyConfigMsg {
                     target_profit_pct: 5.0,
                     stop_loss_pct: 1.5,
-                    deadline_timeout_sec: 45,
                 },
             }
         );

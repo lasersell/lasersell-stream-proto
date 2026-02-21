@@ -11,7 +11,7 @@ It provides strongly typed `serde` models for stream messages, including:
 
 ```toml
 [dependencies]
-lasersell-stream-proto = "0.1.0"
+lasersell-stream-proto = "0.1.1"
 ```
 
 ## Quick Example
@@ -24,7 +24,6 @@ let msg = ClientMessage::Configure {
     strategy: StrategyConfigMsg {
         target_profit_pct: 5.0,
         stop_loss_pct: 1.5,
-        deadline_timeout_sec: 45,
     },
 };
 
