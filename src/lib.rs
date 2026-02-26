@@ -119,6 +119,9 @@ pub struct StrategyConfigMsg {
     pub target_profit_pct: f64,
     /// Stop-loss percentage.
     pub stop_loss_pct: f64,
+    /// Trailing stop percentage (locks in profits as price rises).
+    #[serde(default)]
+    pub trailing_stop_pct: f64,
 }
 
 /// Server-enforced per-session and per-key limits.
@@ -189,6 +192,12 @@ pub enum ClientMessage {
         /// Optional slippage tolerance, in basis points.
         #[serde(skip_serializing_if = "Option::is_none")]
         slippage_bps: Option<u16>,
+    },
+    /// Replace the set of monitored wallets for an active session.
+    UpdateWallets {
+        /// Full replacement list of wallet pubkeys.
+        #[serde(deserialize_with = "deserialize_wallet_pubkeys")]
+        wallet_pubkeys: Vec<String>,
     },
 }
 
@@ -451,6 +460,7 @@ mod tests {
             strategy: StrategyConfigMsg {
                 target_profit_pct: 5.0,
                 stop_loss_pct: 1.5,
+                trailing_stop_pct: 0.0,
             },
         };
 
@@ -476,6 +486,7 @@ mod tests {
                 strategy: StrategyConfigMsg {
                     target_profit_pct: 5.0,
                     stop_loss_pct: 1.5,
+                    trailing_stop_pct: 0.0,
                 },
             }
         );
