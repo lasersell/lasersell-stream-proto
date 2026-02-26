@@ -7,13 +7,6 @@ It provides strongly typed `serde` models for stream messages, including:
 - `ServerMessage` events sent by the server
 - Strategy, limits, and market-context payloads
 
-## Installation
-
-```toml
-[dependencies]
-lasersell-stream-proto = "0.1.1"
-```
-
 ## Quick Example
 
 ```rust
