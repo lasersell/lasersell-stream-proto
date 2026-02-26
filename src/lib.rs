@@ -122,6 +122,9 @@ pub struct StrategyConfigMsg {
     /// Trailing stop percentage (locks in profits as price rises).
     #[serde(default)]
     pub trailing_stop_pct: f64,
+    /// Automatically sell when a token graduates to a new DEX.
+    #[serde(default)]
+    pub sell_on_graduation: bool,
 }
 
 /// Server-enforced per-session and per-key limits.
@@ -461,6 +464,7 @@ mod tests {
                 target_profit_pct: 5.0,
                 stop_loss_pct: 1.5,
                 trailing_stop_pct: 0.0,
+                sell_on_graduation: false,
             },
         };
 
@@ -487,6 +491,7 @@ mod tests {
                     target_profit_pct: 5.0,
                     stop_loss_pct: 1.5,
                     trailing_stop_pct: 0.0,
+                    sell_on_graduation: false,
                 },
             }
         );
