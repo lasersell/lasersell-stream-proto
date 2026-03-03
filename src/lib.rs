@@ -112,6 +112,17 @@ pub struct MarketContextMsg {
     pub raydium_cpmm: Option<RaydiumCpmmContextMsg>,
 }
 
+/// A slippage band describing the max sellable tokens at a given slippage.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SlippageBandMsg {
+    /// Slippage threshold in basis points.
+    pub slippage_bps: u16,
+    /// Maximum tokens sellable within this slippage band.
+    pub max_tokens: u64,
+    /// Coverage as a percentage of the full position (0..100).
+    pub coverage_pct: f64,
+}
+
 /// Client-side strategy thresholds used for automated exits.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StrategyConfigMsg {
@@ -237,6 +248,17 @@ pub enum ServerMessage {
         profit_units: i64,
         /// Estimated proceeds in quote units.
         proceeds_units: u64,
+        /// Server timestamp in Unix milliseconds.
+        server_time_ms: u64,
+    },
+    /// Liquidity snapshot for a position with slippage bands.
+    LiquiditySnapshot {
+        /// Internal position identifier.
+        position_id: u64,
+        /// Slippage bands describing sellable amounts at each threshold.
+        bands: Vec<SlippageBandMsg>,
+        /// Liquidity trend: "growing", "stable", or "draining".
+        liquidity_trend: String,
         /// Server timestamp in Unix milliseconds.
         server_time_ms: u64,
     },
@@ -588,6 +610,28 @@ mod tests {
             position_id: 5,
             profit_units: 12,
             proceeds_units: 34,
+            server_time_ms: 999,
+        };
+        round_trip(msg);
+    }
+
+    #[test]
+    fn liquidity_snapshot_round_trip() {
+        let msg = ServerMessage::LiquiditySnapshot {
+            position_id: 5,
+            bands: vec![
+                SlippageBandMsg {
+                    slippage_bps: 100,
+                    max_tokens: 5000,
+                    coverage_pct: 50.0,
+                },
+                SlippageBandMsg {
+                    slippage_bps: 500,
+                    max_tokens: 10000,
+                    coverage_pct: 100.0,
+                },
+            ],
+            liquidity_trend: "growing".to_string(),
             server_time_ms: 999,
         };
         round_trip(msg);
