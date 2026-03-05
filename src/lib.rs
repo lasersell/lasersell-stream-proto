@@ -177,6 +177,12 @@ pub enum ClientMessage {
         wallet_pubkeys: Vec<String>,
         /// Strategy thresholds for the session.
         strategy: StrategyConfigMsg,
+        /// How the client will submit the signed transaction (e.g. "helius_sender", "rpc", "astralane").
+        #[serde(default)]
+        send_mode: Option<String>,
+        /// Priority fee tip in lamports (required for some send modes).
+        #[serde(default)]
+        tip_lamports: Option<u64>,
     },
     /// Update strategy thresholds for an active session.
     UpdateStrategy {
@@ -488,6 +494,8 @@ mod tests {
                 trailing_stop_pct: 0.0,
                 sell_on_graduation: false,
             },
+            send_mode: None,
+            tip_lamports: None,
         };
 
         round_trip(msg);
@@ -515,6 +523,8 @@ mod tests {
                     trailing_stop_pct: 0.0,
                     sell_on_graduation: false,
                 },
+                send_mode: None,
+                tip_lamports: None,
             }
         );
 
