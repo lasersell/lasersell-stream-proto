@@ -256,6 +256,12 @@ pub enum ServerMessage {
         proceeds_units: u64,
         /// Server timestamp in Unix milliseconds.
         server_time_ms: u64,
+        /// Current token price in quote units.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        token_price_quote: Option<u64>,
+        /// Current market cap in quote units.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        market_cap_quote: Option<u64>,
     },
     /// Liquidity snapshot for a position with slippage bands.
     LiquiditySnapshot {
@@ -267,6 +273,27 @@ pub enum ServerMessage {
         liquidity_trend: String,
         /// Server timestamp in Unix milliseconds.
         server_time_ms: u64,
+    },
+    /// A trade (swap) observed on the pool for a tracked position.
+    TradeTick {
+        /// Internal position identifier.
+        position_id: u64,
+        /// Unix timestamp in milliseconds when the trade was observed.
+        time_ms: u64,
+        /// Trade direction: "buy" or "sell".
+        side: String,
+        /// Token amount traded in native units.
+        token_amount: u64,
+        /// Quote (SOL) amount traded in lamports.
+        quote_amount: u64,
+        /// Price per token in lamports.
+        price_quote: u64,
+        /// Wallet that initiated the swap.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        maker: Option<String>,
+        /// Transaction signature (base58-encoded).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tx_signature: Option<String>,
     },
     /// Balance update for a tracked wallet/mint.
     BalanceUpdate {
@@ -305,6 +332,27 @@ pub enum ServerMessage {
         /// Optional market metadata for this position.
         #[serde(skip_serializing_if = "Option::is_none")]
         market_context: Option<MarketContextMsg>,
+        /// Human-readable token name (e.g. "Lamppoli").
+        #[serde(skip_serializing_if = "Option::is_none")]
+        token_name: Option<String>,
+        /// Token ticker symbol (e.g. "LAMP").
+        #[serde(skip_serializing_if = "Option::is_none")]
+        token_symbol: Option<String>,
+        /// Token decimal places for display.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        token_decimals: Option<u8>,
+        /// Token price in quote units at time of open.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        token_price_quote: Option<u64>,
+        /// Market cap in quote units at time of open.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        market_cap_quote: Option<u64>,
+        /// Pool liquidity in quote units at time of open.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pool_liquidity_quote: Option<u64>,
+        /// Server timestamp when the position opened, in Unix milliseconds.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        opened_at_ms: Option<u64>,
         /// Slot when the position opened.
         slot: u64,
     },
@@ -621,6 +669,23 @@ mod tests {
             profit_units: 12,
             proceeds_units: 34,
             server_time_ms: 999,
+            token_price_quote: None,
+            market_cap_quote: None,
+        };
+        round_trip(msg);
+    }
+
+    #[test]
+    fn trade_tick_round_trip() {
+        let msg = ServerMessage::TradeTick {
+            position_id: 7,
+            time_ms: 1700000000123,
+            side: "buy".to_string(),
+            token_amount: 50_000_000,
+            quote_amount: 1_200_000_000,
+            price_quote: 24_000,
+            maker: Some("11111111111111111111111111111111".to_string()),
+            tx_signature: Some("22222222222222222222222222222222".to_string()),
         };
         round_trip(msg);
     }
