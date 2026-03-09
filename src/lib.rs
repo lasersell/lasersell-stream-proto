@@ -123,10 +123,22 @@ pub struct SlippageBandMsg {
     pub coverage_pct: f64,
 }
 
+/// A single take-profit level in a chained sell strategy.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct TakeProfitLevelMsg {
+    /// PnL percentage threshold to trigger this level.
+    pub profit_pct: f64,
+    /// Percentage of remaining position to sell when triggered.
+    pub sell_pct: f64,
+    /// New trailing stop percentage after this level fires (0 = no change).
+    #[serde(default)]
+    pub trailing_stop_pct: f64,
+}
+
 /// Client-side strategy thresholds used for automated exits.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StrategyConfigMsg {
-    /// Target take-profit percentage.
+    /// Target take-profit percentage (legacy single-level; ignored when `take_profit_levels` is non-empty).
     pub target_profit_pct: f64,
     /// Stop-loss percentage.
     pub stop_loss_pct: f64,
@@ -136,6 +148,15 @@ pub struct StrategyConfigMsg {
     /// Automatically sell when a token graduates to a new DEX.
     #[serde(default)]
     pub sell_on_graduation: bool,
+    /// Multi-level take-profit chain. When non-empty, overrides `target_profit_pct`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub take_profit_levels: Vec<TakeProfitLevelMsg>,
+    /// Scale down chained sells when pool liquidity is thin and redistribute overflow.
+    #[serde(default)]
+    pub liquidity_guard: bool,
+    /// Move stop loss to breakeven once profit reaches this percentage (0 = disabled).
+    #[serde(default)]
+    pub breakeven_trail_pct: f64,
 }
 
 /// Server-enforced per-session and per-key limits.
@@ -401,6 +422,12 @@ pub enum ServerMessage {
         market_context: Option<MarketContextMsg>,
         /// Base64-encoded unsigned transaction payload.
         unsigned_tx_b64: String,
+        /// Tokens being sold (present for partial/chained sells).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sell_tokens: Option<u64>,
+        /// Which chained take-profit level fired (0-indexed).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        level_index: Option<u32>,
     },
 }
 
@@ -541,6 +568,9 @@ mod tests {
                 stop_loss_pct: 1.5,
                 trailing_stop_pct: 0.0,
                 sell_on_graduation: false,
+                take_profit_levels: vec![],
+                liquidity_guard: false,
+                breakeven_trail_pct: 0.0,
             },
             send_mode: None,
             tip_lamports: None,
@@ -570,6 +600,9 @@ mod tests {
                     stop_loss_pct: 1.5,
                     trailing_stop_pct: 0.0,
                     sell_on_graduation: false,
+                    take_profit_levels: vec![],
+                    liquidity_guard: false,
+                    breakeven_trail_pct: 0.0,
                 },
                 send_mode: None,
                 tip_lamports: None,
@@ -658,6 +691,78 @@ mod tests {
             triggered_at_ms: 123,
             market_context: Some(ctx),
             unsigned_tx_b64: "dGVzdA==".to_string(),
+            sell_tokens: None,
+            level_index: None,
+        };
+        round_trip(msg);
+    }
+
+    #[test]
+    fn strategy_with_take_profit_levels_round_trip() {
+        let msg = ClientMessage::Configure {
+            wallet_pubkeys: vec!["11111111111111111111111111111111".to_string()],
+            strategy: StrategyConfigMsg {
+                target_profit_pct: 0.0,
+                stop_loss_pct: 5.0,
+                trailing_stop_pct: 10.0,
+                sell_on_graduation: false,
+                take_profit_levels: vec![
+                    TakeProfitLevelMsg {
+                        profit_pct: 50.0,
+                        sell_pct: 30.0,
+                        trailing_stop_pct: 5.0,
+                    },
+                    TakeProfitLevelMsg {
+                        profit_pct: 100.0,
+                        sell_pct: 30.0,
+                        trailing_stop_pct: 3.0,
+                    },
+                ],
+                liquidity_guard: true,
+                breakeven_trail_pct: 0.0,
+            },
+            send_mode: None,
+            tip_lamports: None,
+        };
+        round_trip(msg);
+    }
+
+    #[test]
+    fn strategy_without_levels_backward_compatible() {
+        let raw = r#"{
+            "type":"configure",
+            "wallet_pubkeys":["11111111111111111111111111111111"],
+            "strategy":{
+                "target_profit_pct":25.0,
+                "stop_loss_pct":5.0
+            }
+        }"#;
+        let msg: ClientMessage = serde_json::from_str(raw).expect("deserialize");
+        if let ClientMessage::Configure { strategy, .. } = msg {
+            assert!(strategy.take_profit_levels.is_empty());
+            assert_eq!(strategy.target_profit_pct, 25.0);
+        } else {
+            panic!("expected Configure");
+        }
+    }
+
+    #[test]
+    fn exit_signal_with_partial_sell_round_trip() {
+        let msg = ServerMessage::ExitSignalWithTx {
+            session_id: 1,
+            position_id: 2,
+            wallet_pubkey: "11111111111111111111111111111111".to_string(),
+            mint: "22222222222222222222222222222222".to_string(),
+            token_account: None,
+            token_program: None,
+            position_tokens: 1000,
+            profit_units: 50,
+            reason: "chained_tp".to_string(),
+            triggered_at_ms: 999,
+            market_context: None,
+            unsigned_tx_b64: "dGVzdA==".to_string(),
+            sell_tokens: Some(300),
+            level_index: Some(0),
         };
         round_trip(msg);
     }
