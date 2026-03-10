@@ -159,6 +159,26 @@ pub struct StrategyConfigMsg {
     pub breakeven_trail_pct: f64,
 }
 
+/// Auto-buy configuration for a watched wallet.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct AutoBuyConfigMsg {
+    /// Which of the user's own wallets to execute the buy on.
+    pub wallet_pubkey: String,
+    /// Amount to spend in quote units (e.g. lamports for SOL).
+    pub amount_quote_units: u64,
+}
+
+/// A single watched wallet entry with optional auto-buy mirror config.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct WatchWalletEntryMsg {
+    /// Solana pubkey of the external wallet to watch.
+    pub pubkey: String,
+    /// Optional auto-buy config. When set, the stream triggers a buy on
+    /// the user's own wallet whenever the watched wallet opens a position.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_buy: Option<AutoBuyConfigMsg>,
+}
+
 /// Server-enforced per-session and per-key limits.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LimitsMsg {
@@ -177,6 +197,9 @@ pub struct LimitsMsg {
     /// Max simultaneous sessions per API key.
     #[serde(default)]
     pub max_sessions_per_api_key: u32,
+    /// Max external wallets that can be watched per session (copy trading).
+    #[serde(default)]
+    pub max_watch_wallets_per_session: u32,
 }
 
 /// Commands sent from client to server.
@@ -204,6 +227,9 @@ pub enum ClientMessage {
         /// Priority fee tip in lamports (required for some send modes).
         #[serde(default)]
         tip_lamports: Option<u64>,
+        /// External wallets to watch for copy trading (tier 1+).
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        watch_wallets: Vec<WatchWalletEntryMsg>,
     },
     /// Update strategy thresholds for an active session.
     UpdateStrategy {
@@ -239,6 +265,11 @@ pub enum ClientMessage {
         /// Full replacement list of wallet pubkeys.
         #[serde(deserialize_with = "deserialize_wallet_pubkeys")]
         wallet_pubkeys: Vec<String>,
+    },
+    /// Replace the set of watched external wallets for copy trading.
+    UpdateWatchWallets {
+        /// Full replacement list of watch wallet entries.
+        watch_wallets: Vec<WatchWalletEntryMsg>,
     },
 }
 
@@ -283,6 +314,9 @@ pub enum ServerMessage {
         /// Current market cap in quote units.
         #[serde(skip_serializing_if = "Option::is_none")]
         market_cap_quote: Option<u64>,
+        /// True when this position belongs to a watched (copy-traded) wallet.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        watched: bool,
     },
     /// Liquidity snapshot for a position with slippage bands.
     LiquiditySnapshot {
@@ -294,6 +328,9 @@ pub enum ServerMessage {
         liquidity_trend: String,
         /// Server timestamp in Unix milliseconds.
         server_time_ms: u64,
+        /// True when this position belongs to a watched (copy-traded) wallet.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        watched: bool,
     },
     /// A trade (swap) observed on the pool for a tracked position.
     TradeTick {
@@ -315,6 +352,9 @@ pub enum ServerMessage {
         /// Transaction signature (base58-encoded).
         #[serde(skip_serializing_if = "Option::is_none")]
         tx_signature: Option<String>,
+        /// True when this position belongs to a watched (copy-traded) wallet.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        watched: bool,
     },
     /// Balance update for a tracked wallet/mint.
     BalanceUpdate {
@@ -376,6 +416,9 @@ pub enum ServerMessage {
         opened_at_ms: Option<u64>,
         /// Slot when the position opened.
         slot: u64,
+        /// True when this position belongs to a watched (copy-traded) wallet.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        watched: bool,
     },
     /// Notification that a position has been closed.
     PositionClosed {
@@ -392,6 +435,9 @@ pub enum ServerMessage {
         reason: String,
         /// Slot when the position closed.
         slot: u64,
+        /// True when this position belongs to a watched (copy-traded) wallet.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        watched: bool,
     },
     /// Exit signal payload that includes an unsigned transaction.
     ExitSignalWithTx {
@@ -428,6 +474,9 @@ pub enum ServerMessage {
         /// Which chained take-profit level fired (0-indexed).
         #[serde(skip_serializing_if = "Option::is_none")]
         level_index: Option<u32>,
+        /// True when this position belongs to a watched (copy-traded) wallet.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        watched: bool,
     },
 }
 
@@ -574,6 +623,7 @@ mod tests {
             },
             send_mode: None,
             tip_lamports: None,
+            watch_wallets: vec![],
         };
 
         round_trip(msg);
@@ -606,6 +656,7 @@ mod tests {
                 },
                 send_mode: None,
                 tip_lamports: None,
+                watch_wallets: vec![],
             }
         );
 
@@ -656,6 +707,7 @@ mod tests {
                 max_wallets_per_session: 8,
                 max_positions_per_wallet: 64,
                 max_sessions_per_api_key: 1,
+                max_watch_wallets_per_session: 10,
             },
         };
 
@@ -693,6 +745,7 @@ mod tests {
             unsigned_tx_b64: "dGVzdA==".to_string(),
             sell_tokens: None,
             level_index: None,
+            watched: false,
         };
         round_trip(msg);
     }
@@ -723,6 +776,7 @@ mod tests {
             },
             send_mode: None,
             tip_lamports: None,
+            watch_wallets: vec![],
         };
         round_trip(msg);
     }
@@ -763,6 +817,7 @@ mod tests {
             unsigned_tx_b64: "dGVzdA==".to_string(),
             sell_tokens: Some(300),
             level_index: Some(0),
+            watched: false,
         };
         round_trip(msg);
     }
@@ -776,6 +831,7 @@ mod tests {
             server_time_ms: 999,
             token_price_quote: None,
             market_cap_quote: None,
+            watched: false,
         };
         round_trip(msg);
     }
@@ -791,6 +847,7 @@ mod tests {
             price_quote: 24_000,
             maker: Some("11111111111111111111111111111111".to_string()),
             tx_signature: Some("22222222222222222222222222222222".to_string()),
+            watched: false,
         };
         round_trip(msg);
     }
@@ -813,6 +870,7 @@ mod tests {
             ],
             liquidity_trend: "growing".to_string(),
             server_time_ms: 999,
+            watched: false,
         };
         round_trip(msg);
     }
