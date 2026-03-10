@@ -136,7 +136,7 @@ pub struct TakeProfitLevelMsg {
 }
 
 /// Client-side strategy thresholds used for automated exits.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct StrategyConfigMsg {
     /// Target take-profit percentage (legacy single-level; ignored when `take_profit_levels` is non-empty).
     pub target_profit_pct: f64,
