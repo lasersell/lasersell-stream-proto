@@ -164,8 +164,12 @@ pub struct StrategyConfigMsg {
 pub struct AutoBuyConfigMsg {
     /// Which of the user's own wallets to execute the buy on.
     pub wallet_pubkey: String,
-    /// Amount to spend in quote units (e.g. lamports for SOL).
+    /// Amount to spend in SOL lamports when the watched wallet buys in a SOL market.
     pub amount_quote_units: u64,
+    /// Amount to spend in USD1 base units when the watched wallet buys in a USD1 market.
+    /// When `None`, USD1 markets are skipped for auto-buy.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub amount_usd1_units: Option<u64>,
 }
 
 /// A single watched wallet entry with optional auto-buy mirror config.
@@ -270,6 +274,16 @@ pub enum ClientMessage {
     UpdateWatchWallets {
         /// Full replacement list of watch wallet entries.
         watch_wallets: Vec<WatchWalletEntryMsg>,
+    },
+    /// Override the strategy for a single active position.
+    ///
+    /// The provided strategy fully replaces the session-level strategy for this
+    /// position only. Other positions are unaffected.
+    UpdatePositionStrategy {
+        /// The position to override.
+        position_id: u64,
+        /// Full strategy replacement for this position.
+        strategy: StrategyConfigMsg,
     },
 }
 
@@ -419,6 +433,9 @@ pub enum ServerMessage {
         /// True when this position belongs to a watched (copy-traded) wallet.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         watched: bool,
+        /// Identifier of the mirror source that triggered this position (e.g. watched wallet pubkey).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mirror_source: Option<String>,
     },
     /// Notification that a position has been closed.
     PositionClosed {
@@ -433,6 +450,9 @@ pub enum ServerMessage {
         token_account: Option<String>,
         /// Reason string for the close event.
         reason: String,
+        /// Identifier of the mirror source that triggered this position (e.g. watched wallet pubkey).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mirror_source: Option<String>,
         /// Slot when the position closed.
         slot: u64,
         /// True when this position belongs to a watched (copy-traded) wallet.
@@ -474,6 +494,9 @@ pub enum ServerMessage {
         /// Which chained take-profit level fired (0-indexed).
         #[serde(skip_serializing_if = "Option::is_none")]
         level_index: Option<u32>,
+        /// Identifier of the mirror source that triggered this position (e.g. watched wallet pubkey).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mirror_source: Option<String>,
         /// True when this position belongs to a watched (copy-traded) wallet.
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         watched: bool,
@@ -745,6 +768,7 @@ mod tests {
             unsigned_tx_b64: "dGVzdA==".to_string(),
             sell_tokens: None,
             level_index: None,
+            mirror_source: None,
             watched: false,
         };
         round_trip(msg);
@@ -817,6 +841,7 @@ mod tests {
             unsigned_tx_b64: "dGVzdA==".to_string(),
             sell_tokens: Some(300),
             level_index: Some(0),
+            mirror_source: None,
             watched: false,
         };
         round_trip(msg);
