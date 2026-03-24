@@ -181,6 +181,39 @@ pub struct WatchWalletEntryMsg {
     /// the user's own wallet whenever the watched wallet opens a position.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_buy: Option<AutoBuyConfigMsg>,
+    /// When true, the stream also mirrors the watched wallet's sells by
+    /// triggering a full exit on the user's corresponding mirror position.
+    #[serde(default)]
+    pub mirror_sell: bool,
+}
+
+/// Mirror trading hardening configuration sent during Configure.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct MirrorConfigMsg {
+    /// Max concurrent mirror positions per watched wallet (0 = unlimited).
+    #[serde(default)]
+    pub max_positions_per_wallet: u32,
+    /// Cooldown between mirror buys in seconds (0 = no cooldown).
+    #[serde(default)]
+    pub cooldown_sec: u64,
+    /// Skip tokens created/deployed by the watched wallet.
+    #[serde(default)]
+    pub skip_creator_tokens: bool,
+    /// Max total SOL deployed across all active mirror positions (0.0 = unlimited).
+    #[serde(default)]
+    pub max_active_sol: f64,
+    /// Slippage tolerance for mirror buys in basis points (0 = use default).
+    #[serde(default)]
+    pub buy_slippage_bps: u16,
+    /// Minimum pool liquidity in SOL to allow a mirror buy (None = disabled).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_liquidity_sol: Option<f64>,
+    /// Maximum price drift % from watched wallet's entry before skipping (None = disabled).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_entry_drift_pct: Option<f64>,
+    /// Auto-disable watched wallet after N consecutive losing mirror trades (None = disabled).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_consecutive_losses: Option<u32>,
 }
 
 /// Server-enforced per-session and per-key limits.
@@ -234,6 +267,9 @@ pub enum ClientMessage {
         /// External wallets to watch for copy trading (tier 1+).
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         watch_wallets: Vec<WatchWalletEntryMsg>,
+        /// Mirror trading hardening configuration.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        mirror_config: Option<MirrorConfigMsg>,
     },
     /// Update strategy thresholds for an active session.
     UpdateStrategy {
@@ -284,6 +320,19 @@ pub enum ClientMessage {
         position_id: u64,
         /// Full strategy replacement for this position.
         strategy: StrategyConfigMsg,
+    },
+    /// Report the outcome of a mirror buy transaction back to the stream.
+    ///
+    /// Sent by the desktop app after signing and submitting (or failing to submit)
+    /// a `MirrorBuySignal` transaction. Allows the stream to immediately clear
+    /// pending state (dedup locks, pending tags) instead of waiting for the
+    /// periodic cleanup sweep.
+    MirrorBuyResult {
+        /// Token mint pubkey that the mirror buy targeted.
+        mint: String,
+        /// True if the transaction was successfully submitted to the network.
+        /// False if signing or submission failed.
+        success: bool,
     },
 }
 
@@ -501,6 +550,56 @@ pub enum ServerMessage {
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         watched: bool,
     },
+    /// Unsigned buy transaction triggered by a watched wallet's purchase.
+    ///
+    /// Sent when a watched wallet opens a position and the mirror buy passes
+    /// all hardening checks. The client should sign and submit the transaction,
+    /// then send a `MirrorBuyResult` message back to report the outcome.
+    MirrorBuySignal {
+        /// Session identifier for correlation.
+        session_id: u64,
+        /// Watched wallet that triggered this mirror buy.
+        watched_wallet: String,
+        /// Token mint pubkey being bought.
+        mint: String,
+        /// User's own wallet that will execute the buy.
+        user_wallet: String,
+        /// Amount to spend in quote units (lamports for SOL, base units for USD1).
+        amount_quote_units: u64,
+        /// Quote asset: "SOL" or "USD1".
+        input: String,
+        /// Base64-encoded unsigned buy transaction.
+        unsigned_tx_b64: String,
+        /// Slippage tolerance in basis points.
+        slippage_bps: u16,
+        /// Transaction send mode (e.g. "helius_sender", "rpc", "astralane").
+        #[serde(skip_serializing_if = "Option::is_none")]
+        send_mode: Option<String>,
+        /// Priority fee tip in lamports.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        tip_lamports: Option<u64>,
+        /// Optional market metadata.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        market_context: Option<MarketContextMsg>,
+    },
+    /// Notification that a mirror buy could not be executed.
+    MirrorBuyFailed {
+        /// Watched wallet that triggered the failed buy.
+        watched_wallet: String,
+        /// Token mint pubkey that was targeted.
+        mint: String,
+        /// Human-readable reason for the failure.
+        reason: String,
+    },
+    /// Notification that a watched wallet has been auto-disabled.
+    MirrorWalletAutoDisabled {
+        /// Watched wallet pubkey that was disabled.
+        watched_wallet: String,
+        /// Reason for auto-disable (e.g. "consecutive_losses").
+        reason: String,
+        /// Number of consecutive losses that triggered the disable.
+        loss_count: u32,
+    },
 }
 
 impl ClientMessage {
@@ -647,6 +746,7 @@ mod tests {
             send_mode: None,
             tip_lamports: None,
             watch_wallets: vec![],
+            mirror_config: None,
         };
 
         round_trip(msg);
@@ -680,6 +780,7 @@ mod tests {
                 send_mode: None,
                 tip_lamports: None,
                 watch_wallets: vec![],
+                mirror_config: None,
             }
         );
 
@@ -801,6 +902,7 @@ mod tests {
             send_mode: None,
             tip_lamports: None,
             watch_wallets: vec![],
+            mirror_config: None,
         };
         round_trip(msg);
     }
